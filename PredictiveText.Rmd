@@ -1,0 +1,201 @@
+---
+title: "Predictive Text"
+author: "Martin Hill"
+date: "7 August 2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Predictive Text Mining App 
+
+This is an exploratory look at three source of data (blogs,twitter and news feeds) - raw data provided by SwiftKey. As the title suggests the end goal is to be able predict what word would come next based on previously typed words or phrases.
+
+```{r SavingTokens, eval=FALSE, echo=TRUE}
+#set sample_size <= 0 to read all the Corpora file
+CreateTokenListFromCorpora <- function(corpora, sample_size) 
+{
+#note encoding UTF-8 
+data <- list()
+con <- file(corpora, "r")
+#read in chunk"s
+while (length(text <- readLines(con, n = 1000, warn = FALSE, encoding = "UTF-8")) > 0) 
+      {
+      data <- append(data, text)
+      } 
+
+close(con)
+
+
+#Number of data items
+Ndata <- length(data)
+
+#Sample data
+sdata <- sample(data, sample_size)
+
+#remove garbage i.e. contains no spaces 
+sdata<-sdata[grep("[ ]", sdata)]
+#remove where there is nothing
+sdata<-sdata[grep("^(.)+", sdata)]
+
+#remove special characters
+sdata<-gsub("^[:alnum:][:blank:]+[:punct:]&/\\-]", "", sdata)
+
+#Seperate out punctuation
+sdata<-gsub("[?]+", " ? ", sdata)
+
+#keeping punctuation is preferable to keep words seperate that wouldn't make sense together 
+#or creating artifical new ones. "Charlie's face was pink. Floyd had embarassed him." = Pink Floyd
+#just seperate them were we can at end and in tokenised words.
+sdata<-gsub("[.]$", " .", sdata)
+sdata<-gsub("!$", " !", sdata)
+sdata<-gsub("[?]$", " ?", sdata)
+
+#remove extra spaces
+sdata<-gsub("[ ]+", " ", sdata)
+
+#split out spaces
+words <- list()
+Ndata <- length(sdata)
+dcnt = 1
+while (dcnt <= Ndata) 
+{
+   new_words <- strsplit(sdata[dcnt], " ")
+   words <- append(words, new_words)
+      
+   dcnt <- dcnt + 1
+}
+
+#flatten list
+words<-unlist(words, recursive=FALSE)
+#remove brackets
+words<-gsub("[()]","", words)
+#seperate out where the period  and comma is at the end
+words<-gsub("[.]$", " .", words)
+words<-gsub("[,]$", " ,", words)
+
+words<-tolower(words)
+
+#split out spaces
+words2 <- list()
+Ndata <- length(words)
+dcnt = 1
+while (dcnt <= Ndata) 
+{
+      new_words <- strsplit(words[dcnt], " ")
+      words2 <- append(words2, new_words)
+      
+      dcnt <- dcnt + 1
+}
+
+#flatten list
+words2<-unlist(words2, recursive=FALSE)
+
+#remove where there is nothing
+words2<-words2[grep("^(.)+", words2)]
+
+#return list
+words2
+}
+
+#Create token sample from file and save as new file - get's cleaned in the process
+CreateTokenSampleFiles <- function(sample_name) 
+{
+corpora= paste("./SwiftKey/en_US/en_US.",sample_name,".txt" , sep = "")
+
+#note encoding UTF-8 
+data <- list()
+con <- file(corpora, "r")
+data <- readLines(con, warn = FALSE, encoding = "UTF-8")
+close(con)
+
+
+nlines <- length(data)
+nwords <-  wordcount(data)
+sample_size = round(0.05*nlines, 0)
+
+tokenlist<-CreateTokenListFromCorpora(corpora, sample_size)
+
+tokenfile= concatenate("./PredictiveText/token.",sample_name,".txt" , rm.space = TRUE)
+#Write out token data
+tokenConn<-file(tokenfile)
+writeLines(tokenlist, tokenConn)
+close(tokenConn)
+}
+
+#WEEK 1 - Task 1 - #Create token sample from file and save as new file - get's cleaned in the process
+samples <-  c('twitter', 'blogs', 'news')
+for(i in 1:length(samples))
+{
+sample_name<-samples[i]
+CreateTokenSampleFiles(sample_name)
+}
+```
+
+
+## Word Count
+
+```{r basicplot, echo=TRUE}
+samples <-  c('twitter', 'blogs', 'news')
+#WEEK 1 - Task 2 - Profanity filter and create list containing each sample
+sample_list <- list()
+for(i in 1:length(samples))
+{
+sample_name<-samples[i]
+tokenfile= paste("token.",sample_name,".txt" , sep = "")
+#read token data
+tokenConn <- file(tokenfile, "r")
+tokenlist <- readLines(tokenConn, warn = FALSE, encoding = "UTF-8")
+close(tokenConn)
+
+#remove row where there are rude words - removing singular words may cause false associations
+#Note : I'm sure there are lots of rude words to add - but let's not list them all yet - just as they are discovered
+tokenlist <- tokenlist[!grepl("(bullshit|fuck)", tokenlist, ignore.case = TRUE)]
+
+#single string for tokenization
+token <- paste(tokenlist, collapse = ' ')
+
+#add to list
+sample_list <- append(sample_list, token)
+}
+
+#install.packages("ngram")
+library(ngram)
+library(ggplot2)
+
+#WEEK 2 - Task 1 - Simple stats
+df <- do.call("rbind", sample_list)
+df <- as.data.frame(df)
+nwords <- sapply(sample_list, wordcount)
+df<-cbind(df, nwords)
+df<-cbind(df, samples)
+rownames(df)<-samples
+colnames(df)<-c('Tokens','NumWords', 'Samples')
+
+qplot(x = df$Samples, y = df$NumWords, geom = 'col') + labs(x = "Samples", y = 'Number of Words')
+
+```
+
+
+```{r SlamNotInstall, eval=FALSE, echo=TRUE}
+#install.packages("slam")
+#install.packages("tm")
+library(NLP)
+library(slam)
+
+#install.packages("pacman")
+#pacman::p_load(tm)
+
+textmine <- tm::Corpus(VectorSource(df))
+
+#install.packages("ngram")
+library(ngram)
+
+ng <- ngram (tokenized , n =2)
+ng
+
+print (ng, output ="full")
+
+```
