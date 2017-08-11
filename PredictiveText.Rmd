@@ -1,201 +1,385 @@
 ---
 title: "Predictive Text"
 author: "Martin Hill"
-date: "7 August 2017"
+date: "11 August 2017"
 output: html_document
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(eval=TRUE, echo=FALSE, warning=FALSE, message=FALSE, fig.width=6,fig.height=2)
 ```
 
-## Predictive Text Mining App 
+### Introduction
 
-This is an exploratory look at three source of data (blogs,twitter and news feeds) - raw data provided by SwiftKey. As the title suggests the end goal is to be able predict what word would come next based on previously typed words or phrases.
+This is an exploratory look at three source of data (blogs,twitter and news feeds) - raw data provided by SwiftKey (https://d396qusza40orc.cloudfront.net/dsscapstone/dataset/Coursera-SwiftKey.zip). As the title suggests the end goal is to be able predict what word would come next based on previously typed words or phrases. By analysis which words go together and the frequency at which they occur. 
 
-```{r SavingTokens, eval=FALSE, echo=TRUE}
-#set sample_size <= 0 to read all the Corpora file
-CreateTokenListFromCorpora <- function(corpora, sample_size) 
+I have chosen to include punctuation in as it is also acts as a determiner of what might come next. A collection of letters,words,numbers,punctuation etc seperated by spaces are called terms or more specifically grams: a 1-gram would have 1 items, a 2-gram would have 2 items and so on. 
+
+In this report we have focused on the en_US locale, however language based settings amongst others settings are included in the code:
+
+```{r Settings}
+sources <-  c('twitter', 'blogs', 'news')#pretty much fixed in report
+StrSources<-paste(sources, collapse = ', ')
+locale="en_US"
+encoding="UTF-8"
+bCache=FALSE
+Sample_percentage = 0.01
+TopTerms_LowFrequency=10
+badwords<-"asshole assholes asskisser asswipe biatch bitch bitches bitchin bitching blowjob blowjobs boner boob boobies boobs bullshit bunghole buttfuck buttfucker butthole buttplug circlejerk cocksuck cocksucker cocksucking cumshot cunt cuntlick cuntlicker cuntlicking cunts dipshit douchebag dumbass fag fagget faggit faggot faggs fagot fagots fags fatass fingerfuck fingerfucked fingerfucker fingerfuckers fingerfucking fingerfucks fistfuck fistfucked fistfucker fistfuckers fistfucking fistfuckings fistfucks fuck fucked fucker fuckers fuckin fucking fuckings fuckme fucks goddamn hardcoresex hotsex jackingoff jackoff jack-off jerk-off jism jiz jizm jizz mothafuck mothafucka mothafuckas mothafuckaz mothafucked mothafucker mothafuckers mothafuckin mothafucking mothafuckings mothafucks motherfuck motherfucked motherfucker motherfuckers motherfuckin motherfucking motherfuckings motherfucks nigga nigger niggers phonesex shit shited shitfull shiting shits shitted shitter shitters shitting shitty slut sluts twat"
+nProfanities<-sapply(strsplit(badwords, "\\s+"), length)
+```
+
+*locale `r locale` - language based
+*encoding `r encoding` - character system used for in the source
+*cache `r bCache` - use precalculated saved values
+*Sample_percentage `r Sample_percentage` - fraction of text files to sample
+*TopTerms_LowFrequency `r TopTerms_LowFrequency` - mininum number of word/phrases to use in top terms calculations
+
+A profanity filter of `r nProfanities` words is used currently to remove lines where any are found.
+
+### Exploratory Analysis
+
+```{r Libraries}
+library(ngram)
+library(knitr)
+library(kableExtra)
+library(dplyr)
+library(ggplot2)
+library(NLP)
+library(tm)
+library(dplyr)
+library(wordcloud)
+```
+
+```{r ReadRawData}
+ReadRawData <- function(source)
 {
-#note encoding UTF-8 
+#Read in chunks relative to project directoty e.g. corpora <- '../SwiftKey/en_US/en_US.blogs.txt'
+corpora <- paste("../SwiftKey/",locale,"/",locale,".",source,".txt" , sep = "")   
+      
 data <- list()
 con <- file(corpora, "r")
-#read in chunk"s
-while (length(text <- readLines(con, n = 1000, warn = FALSE, encoding = "UTF-8")) > 0) 
+while (length(text <- readLines(con, n = 1000, warn = FALSE, encoding = encoding)) > 0) 
       {
       data <- append(data, text)
       } 
-
 close(con)
+data
+}
+```
+
+```{r GetRawDataStats}
+GetRawDataStats <- function (source, data)
+{
+      nLines<-length(data)
+      #ngram function takes a string vector
+      string<-paste(data, collapse = ' ')
+      nWords<-wordcount(string)
+      nChars<-nchar(string)
+      
+      data.frame(source, nLines, nWords, nChars)
+}
+      
+```
+
+```{r GetRawDataLineStats}
+GetRawDataLineStats <- function (source,data)
+{
+      nWords <- unlist(lapply(data, wordcount))
+      nChars <- unlist(lapply(data, nchar))
+      
+      data.frame(source, nWords, nChars)
+}
+```
 
 
-#Number of data items
-Ndata <- length(data)
+```{r ExploratoryAnalysis}
+for(i in 1:length(sources))
+{
+source<-sources[i]
+data<-ReadRawData(source)
+dfStats<-GetRawDataStats(source, data)
+dfStats$nCharsperWord <- round(dfStats$nChars/dfStats$nWords,2)
+dfStats$nWordsperLine <- round(dfStats$nWords/dfStats$nLines,2)
+dfLineStats<-GetRawDataLineStats(source,data)
+dfStats$MaxnChars<-max(dfLineStats$nChars)
+dfStats$MaxnWords<-max(dfLineStats$nWords)
 
-#Sample data
-sdata <- sample(data, sample_size)
+if(i==1)
+      {
+      dfAllStats<-dfStats
+      dfAllLineStats<-dfLineStats
+      }
+else
+      {
+      dfAllStats<- rbind(dfAllStats, dfStats)
+      dfAllLineStats<- rbind(dfAllLineStats, dfLineStats)
+      }
+}
+```
 
+A summary of the sources, unsurprisingly shows, that the news have the largest length words, followed by blogs followed by twitter. Blogs use more words per line and twitters the fewest words. Tweets are restricted to 140 characters, 
+```{r IntroductionTable}
+kable(dfAllStats, format = 'html', format.args = list(big.mark = ',')) %>% kable_styling(bootstrap_options = "striped", full_width = F)
+```
+
+###Character Distribution
+```{r IntroductionCharacters}
+g <-ggplot(dfAllLineStats, aes(x = nChars, fill = source)) 
+g <- g + geom_histogram(binwidth = 50) + xlim(0, 1000) + facet_grid(. ~ source) +xlab('Number of Characters')
+g +scale_y_continuous(labels = scales::comma)
+```
+
+Twitter can seen to be clearly constrained to 140 characters. Whereas news, which has less data, also has a flatter distribution.
+
+###Word Distribution
+```{r IntroductionWords}
+g <-ggplot(dfAllLineStats, aes(x = nWords, fill = source)) 
+g <- g + geom_histogram(binwidth = 5) + xlim(0, 250) + facet_grid(. ~ source) +xlab('Number of Words')
+g +scale_y_continuous(labels = scales::comma)
+
+```
+
+These distributions show that the number of words are constrained for news and particularly for twitter, but not for blogs.Twitter and blogs both show significant use of shorter words. This may be due to the input method predictive keyboard, rather than a standard keyboards used to write news feeds. Unfortunately there is no fields available in the data provided to corroborate this. However, this would provide a useful analysis opportunity in this report i.e. are shorter words used for twitter and blogs.
+
+```{r CreateSampleTokenList}
+CleanDocument <- function(sdata)
+{
+sdata<-sdata[1]      
 #remove garbage i.e. contains no spaces 
 sdata<-sdata[grep("[ ]", sdata)]
 #remove where there is nothing
 sdata<-sdata[grep("^(.)+", sdata)]
-
 #remove special characters
 sdata<-gsub("^[:alnum:][:blank:]+[:punct:]&/\\-]", "", sdata)
 
 #Seperate out punctuation
 sdata<-gsub("[?]+", " ? ", sdata)
-
 #keeping punctuation is preferable to keep words seperate that wouldn't make sense together 
 #or creating artifical new ones. "Charlie's face was pink. Floyd had embarassed him." = Pink Floyd
 #just seperate them were we can at end and in tokenised words.
-sdata<-gsub("[.]$", " .", sdata)
+#although stemming would be useful it would change the word and different endings can change the next word e.g. he passed on, he passes the shop.
+sdata<-gsub("\\.$", " \\.", sdata)
 sdata<-gsub("!$", " !", sdata)
 sdata<-gsub("[?]$", " ?", sdata)
-
 #remove extra spaces
 sdata<-gsub("[ ]+", " ", sdata)
-
 #split out spaces
-words <- list()
-Ndata <- length(sdata)
-dcnt = 1
-while (dcnt <= Ndata) 
-{
-   new_words <- strsplit(sdata[dcnt], " ")
-   words <- append(words, new_words)
-      
-   dcnt <- dcnt + 1
-}
-
+words <- strsplit(unlist(sdata, recursive=FALSE), " ")
 #flatten list
 words<-unlist(words, recursive=FALSE)
-#remove brackets
-words<-gsub("[()]","", words)
-#seperate out where the period  and comma is at the end
-words<-gsub("[.]$", " .", words)
+#seperate out where the puctuation is at the end
+words<-gsub('["]$', ' "', words)
+words<-gsub('^["]', '" ', words)
+words<-gsub("[']$", " '", words)
+words<-gsub("^[']", "' ", words)
+words<-gsub("\\.$", " \\.", words)
 words<-gsub("[,]$", " ,", words)
-
+words<-gsub("[!]$", " !", words)
+words<-gsub("[;]$", " ;", words)
+words<-gsub("[:]$", " :", words)
+#lowercase - this has more pros than cons - capitalisation can mean a proper noun, but then again it could be at the start of a senteence, lowecase mean more match.
 words<-tolower(words)
-
 #split out spaces
-words2 <- list()
-Ndata <- length(words)
-dcnt = 1
-while (dcnt <= Ndata) 
-{
-      new_words <- strsplit(words[dcnt], " ")
-      words2 <- append(words2, new_words)
-      
-      dcnt <- dcnt + 1
-}
-
+words <- strsplit(unlist(words, recursive=FALSE), " ")
 #flatten list
-words2<-unlist(words2, recursive=FALSE)
-
+words<-unlist(words, recursive=FALSE)
+#split out periods in the middle
+words<-gsub("\\.\\.", " \\. \\.", words)
+#end at the end
+words<-gsub("\\.$", " \\.", words)
+#flatten list
+words <- strsplit(unlist(words, recursive=FALSE), " ")
+#flatten list
+words<-unlist(words, recursive=FALSE)
 #remove where there is nothing
-words2<-words2[grep("^(.)+", words2)]
-
-#return list
-words2
+words<-words[grep("^(.)+", words)]
+#Correct where utf8towcs problem
+words<-iconv(words, encoding, "ASCII", sub="words")
+#return
+paste(words, collapse = ' ')
 }
 
-#Create token sample from file and save as new file - get's cleaned in the process
-CreateTokenSampleFiles <- function(sample_name) 
+CreateSampleTokenList <- function(source, sample_perc=0.01) 
 {
-corpora= paste("./SwiftKey/en_US/en_US.",sample_name,".txt" , sep = "")
+data <- ReadRawData(source)
+Ndata <- length(data)
+sample_size = round(sample_perc*Ndata, 0)
 
-#note encoding UTF-8 
-data <- list()
-con <- file(corpora, "r")
-data <- readLines(con, warn = FALSE, encoding = "UTF-8")
-close(con)
-
-
-nlines <- length(data)
-nwords <-  wordcount(data)
-sample_size = round(0.05*nlines, 0)
-
-tokenlist<-CreateTokenListFromCorpora(corpora, sample_size)
-
-tokenfile= concatenate("./PredictiveText/token.",sample_name,".txt" , rm.space = TRUE)
-#Write out token data
-tokenConn<-file(tokenfile)
-writeLines(tokenlist, tokenConn)
-close(tokenConn)
-}
-
-#WEEK 1 - Task 1 - #Create token sample from file and save as new file - get's cleaned in the process
-samples <-  c('twitter', 'blogs', 'news')
-for(i in 1:length(samples))
-{
-sample_name<-samples[i]
-CreateTokenSampleFiles(sample_name)
+#Sample data
+set.seed(7345)
+sdata <- sample(data, sample_size, replace=FALSE)
+#return my cleaned list
+lapply(sdata,CleanDocument)
 }
 ```
-
-
-## Word Count
-
-```{r basicplot, echo=TRUE}
-samples <-  c('twitter', 'blogs', 'news')
-#WEEK 1 - Task 2 - Profanity filter and create list containing each sample
-sample_list <- list()
-for(i in 1:length(samples))
+```{r SaveTokenList}
+SaveTokenList <- function(source, tokenlist) 
 {
-sample_name<-samples[i]
-tokenfile= paste("token.",sample_name,".txt" , sep = "")
-#read token data
-tokenConn <- file(tokenfile, "r")
-tokenlist <- readLines(tokenConn, warn = FALSE, encoding = "UTF-8")
-close(tokenConn)
-
+tokenFile= paste("token.",source,".txt" , sep = "")
+writeLines(unlist(tokenlist), con=tokenFile)
+}
+```
+```{r ReadTokenList}
+ReadTokenList <- function(source) 
+{
+tokenFile= paste("token.",source,".txt" , sep = "")
+allLines<-readLines(con=tokenFile, warn = FALSE)
+data<-list()
+for(text in allLines)
+{
+data<-append(data,text)
+}
+data
+}
+```
+```{r GetCleanSaveTokens, Cache=bCache}
+for(i in 1:length(sources))
+{
+source<-sources[i]
+tokenlist<-CreateSampleTokenList(source, sample_perc = Sample_percentage)
 #remove row where there are rude words - removing singular words may cause false associations
 #Note : I'm sure there are lots of rude words to add - but let's not list them all yet - just as they are discovered
-tokenlist <- tokenlist[!grepl("(bullshit|fuck)", tokenlist, ignore.case = TRUE)]
 
-#single string for tokenization
-token <- paste(tokenlist, collapse = ' ')
+badwords<-gsub(' ', '|', badwords)
 
-#add to list
-sample_list <- append(sample_list, token)
+profanity_filter<-paste('(', badwords,')')
+
+tokenlist <- tokenlist[!grepl(profanity_filter, tokenlist, ignore.case = TRUE)]
+
+SaveTokenList(source, tokenlist) 
+}
+```
+```{r ReadSampleTokens}
+getTDM <- function(corpus, ngrams =1) 
+{
+#NGrams tokenizer
+#      Tokenizer <- function(corpus) 
+#      { 
+#            NGramTokenizer(corpus, Weka_control(min = ngrams, max = ngrams)) 
+#      }
+      
+#NLP retains punctuation
+      Tokenizer <- function(corpus)
+      {
+            unlist(lapply(ngrams(words(corpus), ngrams), paste, collapse = " "), use.names = FALSE)   
+      }
+      
+TermDocumentMatrix(corpus,control=list(tokenize=Tokenizer))
 }
 
-#install.packages("ngram")
-library(ngram)
-library(ggplot2)
+GetTopTerms<- function(tdm, i, ngrams, lowfreq) 
+{
+top_terms<-findFreqTerms(tdm, lowfreq)
 
-#WEEK 2 - Task 1 - Simple stats
-df <- do.call("rbind", sample_list)
-df <- as.data.frame(df)
-nwords <- sapply(sample_list, wordcount)
-df<-cbind(df, nwords)
-df<-cbind(df, samples)
-rownames(df)<-samples
-colnames(df)<-c('Tokens','NumWords', 'Samples')
+top_terms <- rowSums(as.matrix(tdm[top_terms,]))
+df <- data.frame(ngrams, word = names(top_terms), frequency = top_terms)
+arrange(df, desc(frequency))
+}
 
-qplot(x = df$Samples, y = df$NumWords, geom = 'col') + labs(x = "Samples", y = 'Number of Words')
+#Find frequency more than
+lowfreq = TopTerms_LowFrequency
 
+TopTermsAll <- list(length(sources))
+for(i in 1:length(sources))
+{
+source<-sources[i]
+#Retrieve saved cleaned words
+tokenlist<-ReadTokenList(source)
+#Put into a Corpus Object
+corpus <- VCorpus(VectorSource(tokenlist))
+
+#Loop through ngrams
+TopTerms <- list()
+      for(n in 1:3)
+      {
+      #Convert to a TermDocumentMatrix for each ngram
+      tdm<-getTDM(corpus,ngrams=n)
+      #put in a dataframe
+      df<-GetTopTerms(tdm, i, ngrams=n, lowfreq)
+      
+      if(n==1)
+            {
+            TopTerms<-df
+             }
+      else
+            {
+            TopTerms<- rbind(TopTerms, df)
+             }
+      rm(df)
+      }
+
+TopTermsAll[[i]]<-TopTerms
+}
 ```
 
+###Top 10 Frequencies for 1, 2 & 3 N-grams for Blogs as an example.
 
-```{r SlamNotInstall, eval=FALSE, echo=TRUE}
-#install.packages("slam")
-#install.packages("tm")
-library(NLP)
-library(slam)
+```{r NGramFreq}
+par(mfrow=c(1, 3))
+i <- 2 #news
 
-#install.packages("pacman")
-#pacman::p_load(tm)
+ngram1<-subset(TopTermsAll[[i]], ngrams == 1)
+ngram1<-ngram1[1:10,2:3]
+colnames(ngram1)<-c('1-N Word','1-N Freq')
+ngram2<-subset(TopTermsAll[[i]], ngrams == 2)
+ngram2<-ngram2[1:10,2:3]
+colnames(ngram2)<-c('2-N Word','2-N Freq')
+ngram3<-subset(TopTermsAll[[i]], ngrams == 3)
+ngram3<-ngram3[1:10,2:3]
+colnames(ngram3)<-c('3-N Word','3-N Freq')
+ngram<-cbind(ngram1,ngram2,ngram3)
 
-textmine <- tm::Corpus(VectorSource(df))
-
-#install.packages("ngram")
-library(ngram)
-
-ng <- ngram (tokenized , n =2)
-ng
-
-print (ng, output ="full")
-
+kable(ngram, format = 'html', format.args = list(big.mark = ',')) %>% kable_styling(bootstrap_options = "striped", full_width = F)
 ```
+
+###1-grams Word Clouds for `r StrSources` 
+
+```{r NGram1WordCloud}
+par(mfrow=c(1, 3))
+for (i in 1:3)
+{
+      ngram1<-subset(TopTermsAll[[i]], ngrams == 1)
+      wordcloud(ngram1$word, ngram1$frequency, title = sources[i], 
+                scale = c(3,1), max.words=100, random.order=FALSE, rot.per=0.5, 
+                fixed.asp = TRUE, use.r.layout = FALSE, colors=brewer.pal(8, "Dark2"))
+}
+```
+
+###2-grams Word Clouds for `r StrSources` 
+
+```{r NGram2WordCloud}
+par(mfrow=c(1, 3))
+for (i in 1:3)
+{
+      ngram1<-subset(TopTermsAll[[i]], ngrams == 2)
+      wordcloud(ngram1$word, ngram1$frequency, 
+                scale = c(3,1), max.words=100, random.order=FALSE, rot.per=0.5, 
+                fixed.asp = TRUE, use.r.layout = FALSE, colors=brewer.pal(8, "Dark2"))
+}
+```
+
+###3-grams Word Clouds for `r StrSources` 
+
+```{r NGram3WordCloud}
+par(mfrow=c(1, 3))
+for (i in 1:3)
+{
+      ngram1<-subset(TopTermsAll[[i]], ngrams == 3)
+      wordcloud(ngram1$word, ngram1$frequency, 
+                scale = c(3,1), max.words=100, random.order=FALSE, rot.per=0.5, 
+                fixed.asp = TRUE, use.r.layout = FALSE, colors=brewer.pal(8, "Dark2"))
+}
+```
+
+### Futher considerations for an effective App (the Tech bit)
+
+Caching has been used this process to save cleaned files, but memory management and speed could be improved. That and some other considerations are:
+
+*Removing unwanted objects and use a garbage collector to prevent memory loss so can use as large a sample as possible vs the time taken, and so aid prediction.
+*Consider using stemming to reduce words to there root words - but this may impair prediction, is there a trade-off?
+*Use Markov Chains as an improvement on the N-grams for prediction of next words.
+*Use a back off model for unobserved n-grams.
+*Does punctuation really need including. Then can use the RWeka library which is reputed to be more efficient. 
+*Employ a train/test set methodology.
+
